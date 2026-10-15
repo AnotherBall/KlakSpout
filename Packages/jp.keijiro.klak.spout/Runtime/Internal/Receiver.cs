@@ -31,6 +31,7 @@ sealed class Receiver : System.IDisposable
 
         // Plugin object allocation
         _plugin = Plugin.CreateReceiver(sourceName);
+        if (_plugin == IntPtr.Zero) return;
 
         // Event kicker (heap block for interop communication)
         _event = new EventKicker(new EventData(_plugin));
@@ -41,7 +42,7 @@ sealed class Receiver : System.IDisposable
 
     public void Dispose()
     {
-        if (_plugin != System.IntPtr.Zero)
+        if (_plugin != IntPtr.Zero)
         {
             // Isssue the closer event to destroy the plugin object from the
             // render thread.
@@ -67,7 +68,7 @@ sealed class Receiver : System.IDisposable
 
     public void Update()
     {
-        if (_plugin == System.IntPtr.Zero) return;
+        if (_plugin == IntPtr.Zero) return;
 
         var data = Plugin.GetReceiverData(_plugin);
 
@@ -85,8 +86,8 @@ sealed class Receiver : System.IDisposable
         // correct one.
         if (_texture == null && data.texturePointer != IntPtr.Zero)
             _texture = Texture2D.CreateExternalTexture
-              ((int)data.width, (int)data.height, TextureFormat.RGBA32,
-               false, false, data.texturePointer);
+              ((int)data.width, (int)data.height, data.format.ToTextureFormat(),
+               false, !data.format.IsSRGB(), data.texturePointer);
 
         // Update event for the render thread
         _event.IssuePluginEvent(EventID.UpdateReceiver);
