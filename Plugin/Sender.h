@@ -2,6 +2,7 @@
 
 #include "Common.h"
 #include "System.h"
+#include "FrameCount.h"
 
 namespace KlakSpout {
 
@@ -20,12 +21,18 @@ public:
             _system->spout.ReleaseSenderName(_name.c_str());
             _texture = nullptr;
         }
+        _frameCount = nullptr;
     }
 
     void update(IUnknown* source)
     {
         // Lazy initialization
         if (!_texture) initialize();
+        if (!_texture) return;
+
+        // Hold the access mutex while the shared texture is written, then
+        // tell frame-counting receivers that a new frame is available.
+        auto locked = _frameCount && _frameCount->BeginAccess();
 
         WRL::ComPtr<IUnknown> unknown(source);
 
@@ -43,6 +50,9 @@ public:
             unknown.As(&d3d11);
             updateTexture(d3d11.Get());
         }
+
+        if (locked) _frameCount->EndAccess();
+        if (_frameCount) _frameCount->SetNewFrame();
     }
 
 private:
@@ -50,6 +60,7 @@ private:
     std::string _name;
     int _width, _height;
     WRL::ComPtr<ID3D11Texture2D> _texture;
+    std::unique_ptr<FrameCount> _frameCount;
 
     void initialize()
     {
@@ -85,12 +96,16 @@ private:
           .CreateSender(_name.c_str(), _width, _height, handle, desc.Format);
 
         if (!res) LogError("CreateSender", _name, 0);
+
+        _frameCount = std::make_unique<FrameCount>(_name);
     }
 
     void updateTexture(ID3D11Resource* source)
     {
-        // Texture copy
-        _system->getD3D11Context()->CopyResource(_texture.Get(), source);
+        // Texture copy; flush so that the frame is complete when it is counted.
+        auto ctx = _system->getD3D11Context();
+        ctx->CopyResource(_texture.Get(), source);
+        ctx->Flush();
     }
 
     void updateTexture(ID3D12Resource* source)
